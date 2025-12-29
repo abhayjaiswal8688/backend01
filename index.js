@@ -145,3 +145,8 @@ mongoose.connect(process.env.MONGO_URI).then(() => {
     console.log('MongoDB connected.');
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }).catch(err => console.error(err));
+// Add this simple route to test if the server is up
+app.get('/', (req, res) => {
+    res.send("Backend is running successfully!");
+});
+module.exports = app;
