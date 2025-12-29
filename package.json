@@ -4,7 +4,7 @@
   "description": "Backend for the Digital Psychological Intervention System",
   "main": "index.js",
   "scripts": {
-    "start": "node index"
+    "start": "node index.js"
     "vercel-start": "node index.js"
   },
   "dependencies": {
