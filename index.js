@@ -19,7 +19,30 @@ const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
 });
+let isConnected = false;
+const connectToDB = async () => {
+    mongoose.set('strictQuery', true);
+    if (isConnected) {
+        console.log('MongoDB is already connected');
+        return;
+    }
+    try {
+        await mongoose.connect(process.env.MONGO_URI);
+        isConnected = true;
+        console.log('MongoDB connected');
+    } catch (error) {
+        console.error('MongoDB connection error:', error);
+    }
+};
 
+// Apply DB connection to every request
+app.use(async (req, res, next) => {
+    await connectToDB();
+    next();
+});
+app.get('/', (req, res) => {
+    res.send("Backend is running successfully!");
+});
 // --- MODELS ---
 const userSchema = new mongoose.Schema({ 
     name: { type: String, required: true },
@@ -137,11 +160,7 @@ app.get('/api/users/me', authMiddleware, async (req, res) => {
 });
 
 // Startup
-mongoose.connect(process.env.MONGO_URI).then(() => {
-    console.log('MongoDB connected.');
-}).catch(err => console.error(err));
+
 // Add this simple route to test if the server is up
-app.get('/', (req, res) => {
-    res.send("Backend is running successfully!");
-});
+
 module.exports = app;
