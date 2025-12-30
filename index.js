@@ -117,7 +117,10 @@ app.post('/api/auth/register', async (req, res) => {
             from: `"Brain Help" <${process.env.EMAIL_USER}>`,
             to: email,
             subject: "Verify Your Email",
-            html: `<a href="${verificationUrl}">Verify Email</a>`
+            html: `<h2>Welcome ${name}!</h2>
+                    <a href="${verificationUrl}" style="padding: 10px 20px; border-bottom: 10px;background-color: #4CAF50; color: white; text-decoration: none; border-radius: 5px;">Complete Registration</a>
+                   <p>Click the link above to verify your email and complete your registration. This link expires in 15 minutes.</p>
+                  `
         });
         res.status(200).json({ message: "Verification email sent!" });
     } catch (error) {
@@ -134,7 +137,12 @@ app.get('/api/auth/verify-email', async (req, res) => {
         if (existingUser) return res.send("Account already verified.");
         const newUser = new User({ name: decoded.name, email: decoded.email, password: decoded.password });
         await newUser.save();
-        res.send("Email Verified! You can now login.");
+        res.send(`
+            <div style="font-family: Arial, sans-serif; text-align: center; margin-top: 50px;">
+                <h1 style="color: #4CAF50;">Email Verified!</h1>
+                <p>Registration complete. You can now go back to the app and login.</p>
+            </div>
+        `);
     } catch (error) {
         res.status(400).send("Invalid or expired link.");
     }
