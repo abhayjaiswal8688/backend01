@@ -35,11 +35,6 @@ const connectToDB = async () => {
     }
 };
 
-// Apply DB connection to every request
-app.use(async (req, res, next) => {
-    await connectToDB();
-    next();
-});
 app.get('/', (req, res) => {
     res.send("Backend is running successfully!");
 });
@@ -78,6 +73,8 @@ const Thread = mongoose.model('Thread', threadSchema);
 const testRoutes = require('./routes/tests'); 
 const communityRoutes = require('./routes/community');
 const resourceRoutes = require('./routes/resources'); // <--- NEW IMPORT
+const resultRoutes = require('./routes/results');
+const courseRoutes = require('./routes/courses');
 
 // --- AUTH MIDDLEWARE ---
 const authMiddleware = (req, res, next) => {
@@ -99,6 +96,8 @@ const authMiddleware = (req, res, next) => {
 app.use('/api/tests', testRoutes);
 app.use('/api/community', authMiddleware, communityRoutes);
 app.use('/api/resources', resourceRoutes); // <--- NEW ROUTE USE
+app.use('/api/results', resultRoutes);
+app.use('/api/courses', courseRoutes);
 
 // --- AUTH & OTHER ROUTES (unchanged) ---
 app.post('/api/auth/register', async (req, res) => {
@@ -169,6 +168,9 @@ app.get('/api/users/me', authMiddleware, async (req, res) => {
 
 // Startup
 
-// Add this simple route to test if the server is up
-
-module.exports = app;
+// Connect to DB once, then start the server
+connectToDB().then(() => {
+    app.listen(PORT, () => {
+        console.log(`Server running on http://localhost:${PORT}`);
+    });
+});

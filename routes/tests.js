@@ -7,17 +7,20 @@ const mongoose = require('mongoose');
 const questionSchema = new mongoose.Schema({
   questionText: { type: String, required: true },
   options: [{ type: String, required: true }],
-  correctOptionIndex: { type: Number, required: true }
+  
+  // NEW: Support for Question Types
+  type: { type: String, enum: ['single', 'multiple'], default: 'single' },
+  
+  // NEW: Array of correct indices (Replaces old correctOptionIndex)
+  correctOptionIndices: [{ type: Number, required: true }] 
 });
 
 const testSchema = new mongoose.Schema({
   title: { type: String, required: true },
   duration: { type: String, default: "15 mins" }, 
   icon: { type: String, default: "nursing" }, 
-  
-  // Stores the position (0, 1, 2...)
+  category: { type: String, default: "General" }, 
   orderIndex: { type: Number, default: 0 }, 
-  
   questions: [questionSchema],
 }, { timestamps: true });
 
@@ -28,7 +31,7 @@ const Test = mongoose.model('Test', testSchema);
 // GET /api/tests - SORTED BY ORDER
 router.get('/', async (req, res) => {
   try {
-    const tests = await Test.find({}, 'title createdAt questions.length duration icon orderIndex')
+    const tests = await Test.find({}, 'title createdAt questions.length duration icon category orderIndex')
                             .sort({ orderIndex: 1 }); 
     res.json(tests);
   } catch (err) {
@@ -49,7 +52,7 @@ router.get('/:id', async (req, res) => {
 
 // POST /api/tests - Create New
 router.post('/', async (req, res) => {
-  const { title, questions, duration, icon } = req.body; 
+  const { title, questions, duration, icon, category } = req.body; 
 
   try {
     const lastTest = await Test.findOne().sort('-orderIndex');
@@ -60,6 +63,7 @@ router.post('/', async (req, res) => {
       questions,
       duration, 
       icon,
+      category,
       orderIndex: newOrderIndex
     });
 
@@ -84,13 +88,13 @@ router.put('/reorder', async (req, res) => {
     }
 });
 
-// --- NEW: UPDATE SINGLE TEST (Required for Edit Feature) ---
+// PUT /api/tests/:id - UPDATE SINGLE TEST
 router.put('/:id', async (req, res) => {
     try {
         const updatedTest = await Test.findByIdAndUpdate(
             req.params.id, 
             req.body, 
-            { new: true } // Return the updated document
+            { new: true } 
         );
         if (!updatedTest) {
             return res.status(404).json({ message: "Test not found" });
