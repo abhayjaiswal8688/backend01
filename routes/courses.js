@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
 
-// --- 1. SCHEMAS (Using check to prevent OverwriteModelError) ---
+// --- 1. SCHEMAS ---
 
 const lessonSchema = new mongoose.Schema({
   title: { type: String, required: true },
@@ -12,12 +12,13 @@ const lessonSchema = new mongoose.Schema({
   textContent: { type: String }, 
   duration: { type: String, default: '10 mins' },
   isFree: { type: Boolean, default: false },
-  // UPDATED: Support for multiple correct answers
   questions: [{
     questionText: { type: String, required: true },
     options: [{ type: String, required: true }],
     correctOptionIndices: [{ type: Number, required: true }], 
-    type: { type: String, enum: ['single', 'multiple'], default: 'single' }
+    type: { type: String, enum: ['single', 'multiple'], default: 'single' },
+    // ADDED: Flag to require student reasoning
+    requiresReasoning: { type: Boolean, default: false }
   }]
 });
 
@@ -33,13 +34,13 @@ const courseSchema = new mongoose.Schema({
   category: { type: String, default: 'General' },
   instructor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   difficulty: { type: String, enum: ['Beginner', 'Intermediate', 'Advanced'], default: 'Beginner' },
-  isPublic: { type: Boolean, default: false }, // ADDED: Public flag
+  isPublic: { type: Boolean, default: false }, 
   modules: [moduleSchema],
   enrolledCount: { type: Number, default: 0 },
   orderIndex: { type: Number, default: 0 } 
 }, { timestamps: true });
 
-// UPDATED: ENROLLMENT SCHEMA WITH DETAILED PROGRESS
+// ENROLLMENT SCHEMA
 const enrollmentSchema = new mongoose.Schema({
   student: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   course: { type: mongoose.Schema.Types.ObjectId, ref: 'Course', required: true },
@@ -48,18 +49,25 @@ const enrollmentSchema = new mongoose.Schema({
   // 1. Completed Lessons (IDs)
   progress: [{ type: mongoose.Schema.Types.ObjectId }], 
   
-  // 2. Quiz Scores
+  // 2. Quiz Scores & Responses
   quizScores: [{
       lessonId: { type: mongoose.Schema.Types.ObjectId },
       score: Number,
       totalQuestions: Number,
       percentage: Number,
       passed: Boolean,
-      attemptedAt: { type: Date, default: Date.now }
+      attemptedAt: { type: Date, default: Date.now },
+      // ADDED: Detailed User Responses
+      responses: [{
+          questionText: String,
+          selectedOptionIndices: [Number],
+          reasoning: String,
+          isCorrect: Boolean
+      }]
   }],
 
   // 3. Calculated Progress Metrics
-  courseProgress: { type: Number, default: 0 }, // Overall %
+  courseProgress: { type: Number, default: 0 }, 
   moduleProgress: [{
       moduleId: { type: mongoose.Schema.Types.ObjectId },
       completedCount: Number,
@@ -70,7 +78,6 @@ const enrollmentSchema = new mongoose.Schema({
   lastActive: { type: Date, default: Date.now }
 }, { timestamps: true });
 
-// Prevent model overwrite if file is reloaded
 const Course = mongoose.models.Course || mongoose.model('Course', courseSchema);
 const Enrollment = mongoose.models.Enrollment || mongoose.model('Enrollment', enrollmentSchema);
 
@@ -88,7 +95,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// 2. REORDER COURSES (Admin) - MUST BE BEFORE /:id
+// 2. REORDER COURSES
 router.put('/reorder/all', async (req, res) => { 
     const { courseIds } = req.body;
     try {
@@ -102,7 +109,7 @@ router.put('/reorder/all', async (req, res) => {
     }
 });
 
-// 3. STUDENT STATUS (Private) - MUST BE BEFORE /:id
+// 3. STUDENT STATUS
 router.get('/student/status', async (req, res) => {
   try {
     const userId = req.headers['x-user-id']; 
@@ -115,7 +122,7 @@ router.get('/student/status', async (req, res) => {
   }
 });
 
-// 4. ADMIN ENROLLMENTS (Admin) - MUST BE BEFORE /:id
+// 4. ADMIN ENROLLMENTS
 router.get('/admin/enrollments', async (req, res) => {
     try {
       const pending = await Enrollment.find({ status: 'pending' })
@@ -125,7 +132,7 @@ router.get('/admin/enrollments', async (req, res) => {
     } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// 5. ADMIN APPROVE/REJECT (Admin) - Specific ID path is safe here
+// 5. ADMIN APPROVE/REJECT
 router.put('/admin/enrollments/:id', async (req, res) => {
     const { status } = req.body;
     try {
@@ -137,10 +144,9 @@ router.put('/admin/enrollments/:id', async (req, res) => {
     } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// 6. ADMIN ANALYTICS - UPDATED to include studentId
+// 6. ADMIN ANALYTICS
 router.get('/admin/analytics', async (req, res) => {
     try {
-        // 1. Fetch all courses to calculate total lessons per course
         const courses = await Course.find().lean();
         
         const courseLessonCounts = {};
@@ -149,14 +155,12 @@ router.get('/admin/analytics', async (req, res) => {
             courseLessonCounts[c._id] = total || 1; 
         });
 
-        // 2. Fetch all APPROVED enrollments
         const enrollments = await Enrollment.find({ status: 'approved' })
             .populate('student', 'name email')
             .populate('course', 'title category thumbnail')
             .sort({ updatedAt: -1 })
             .lean();
 
-        // 3. Transform data for the frontend
         const analyticsData = enrollments.map(enrollment => {
             if (!enrollment.course || !enrollment.student) return null;
 
@@ -166,7 +170,7 @@ router.get('/admin/analytics', async (req, res) => {
 
             return {
                 _id: enrollment._id,
-                studentId: enrollment.student._id, // <--- ADDED for linking
+                studentId: enrollment.student._id, 
                 studentName: enrollment.student.name,
                 studentEmail: enrollment.student.email,
                 courseTitle: enrollment.course.title,
@@ -186,7 +190,7 @@ router.get('/admin/analytics', async (req, res) => {
     }
 });
 
-// 7. STUDENT MY COURSES - Detailed data for Dashboard
+// 7. STUDENT MY COURSES
 router.get('/student/my-courses', async (req, res) => {
     try {
         const userId = req.headers['x-user-id'];
@@ -242,7 +246,7 @@ router.get('/student/my-courses', async (req, res) => {
     }
 });
 
-// --- SPECIFIC ID ROUTES (WILDCARDS) ---
+// --- SPECIFIC ID ROUTES ---
 
 // GET SINGLE
 router.get('/:id', async (req, res) => {
@@ -304,7 +308,24 @@ router.delete('/:id', async (req, res) => {
     }
 });
 
-// ENROLL (Student) - Checks Public status
+// NEW: UNENROLL STUDENT (Admin/User)
+// Handles: DELETE /courses/:courseId/enroll/:studentId
+router.delete('/:id/enroll/:studentId', async (req, res) => {
+    const { id, studentId } = req.params;
+    try {
+        const enrollment = await Enrollment.findOneAndDelete({ course: id, student: studentId });
+        if (!enrollment) return res.status(404).json({ message: "Enrollment not found" });
+
+        if (enrollment.status === 'approved') {
+            await Course.findByIdAndUpdate(id, { $inc: { enrolledCount: -1 } });
+        }
+        res.json({ message: "Unenrolled successfully" });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// ENROLL (Student)
 router.post('/:id/enroll', async (req, res) => {
     const { userId } = req.body;
     try {
@@ -334,10 +355,10 @@ router.post('/:id/enroll', async (req, res) => {
     } catch (err) { res.status(500).json({ message: err.message }); }
 });
 
-// UPDATE LESSON PROGRESS (Student) - Comprehensive Calculation
+// UPDATE LESSON PROGRESS (Student)
 router.post('/:id/update-lesson-progress', async (req, res) => {
     const { userId, lessonId, moduleId, type, quizData } = req.body;
-    // quizData: { score, totalQuestions, passed }
+    // quizData: { score, totalQuestions, passed, responses: [...] }
     
     try {
       const course = await Course.findById(req.params.id);
@@ -346,8 +367,7 @@ router.post('/:id/update-lesson-progress', async (req, res) => {
       if (!enrollment) return res.status(404).json({ message: "Enrollment not found." });
       if (!course) return res.status(404).json({ message: "Course not found." });
 
-      // 1. Mark Lesson as Completed (Avoid Duplicates)
-      // For quizzes, only mark complete if passed
+      // 1. Mark Lesson as Completed 
       let shouldMarkComplete = true;
       if (type === 'quiz' && quizData && !quizData.passed) {
           shouldMarkComplete = false;
@@ -360,9 +380,9 @@ router.post('/:id/update-lesson-progress', async (req, res) => {
           }
       }
 
-      // 2. Handle Quiz Score
+      // 2. Handle Quiz Score & Detailed Responses
       if (type === 'quiz' && quizData) {
-          // Remove previous score for this lesson if exists to keep the latest/best
+          // Remove previous score for this lesson
           enrollment.quizScores = enrollment.quizScores.filter(qs => qs.lessonId.toString() !== lessonId);
           
           enrollment.quizScores.push({
@@ -371,7 +391,9 @@ router.post('/:id/update-lesson-progress', async (req, res) => {
               totalQuestions: quizData.totalQuestions,
               percentage: (quizData.score / quizData.totalQuestions) * 100,
               passed: quizData.passed,
-              attemptedAt: new Date()
+              attemptedAt: new Date(),
+              // SAVE USER ANSWERS
+              responses: quizData.responses || [] 
           });
       }
 
@@ -383,8 +405,6 @@ router.post('/:id/update-lesson-progress', async (req, res) => {
       course.modules.forEach(mod => {
           const modLessonIds = mod.lessons.map(l => l._id.toString());
           const modTotal = modLessonIds.length;
-          
-          // Count how many of this module's lessons are in enrollment.progress
           const modCompleted = enrollment.progress.filter(pId => modLessonIds.includes(pId.toString())).length;
           
           modulesStats.push({
@@ -399,14 +419,11 @@ router.post('/:id/update-lesson-progress', async (req, res) => {
       });
 
       enrollment.moduleProgress = modulesStats;
-      
-      // 4. RECALCULATE OVERALL PROGRESS
       enrollment.courseProgress = totalCourseLessons > 0 
           ? Math.round((totalCourseCompleted / totalCourseLessons) * 100) 
           : 0;
 
       enrollment.lastActive = new Date();
-      
       await enrollment.save();
       
       res.json({ 

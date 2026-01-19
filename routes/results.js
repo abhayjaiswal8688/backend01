@@ -3,12 +3,11 @@ const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
 
-// --- SCHEMA DEFINITION ---
+// --- 1. DEFINE RESULT SCHEMA ---
+// This schema stores the specific answers (and reasoning) a student gave
 const resultSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }, // Link to student
-  testId: { type: mongoose.Schema.Types.ObjectId, ref: 'Test', required: true }, // Link to test
-  
-  // Denormalized Data (Saves CPU on reads)
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  testId: { type: mongoose.Schema.Types.ObjectId, ref: 'Test', required: true },
   testTitle: { type: String, required: true },
   category: { type: String },
   
@@ -16,25 +15,23 @@ const resultSchema = new mongoose.Schema({
   totalQuestions: { type: Number, required: true },
   percentage: { type: Number, required: true },
   
-  // Optional: Store strictly what is needed for review (e.g., just wrong answers) to save space
-  // For now, we keep it simple.
+  // NEW: Detailed Responses Array
+  responses: [{
+      questionText: String,
+      selectedOptionIndices: [Number], // Supports Multiple Choice
+      reasoning: String,               // Stores the student's "Why"
+      isCorrect: Boolean
+  }]
 }, { timestamps: true });
 
-// Create Compound Index: Fast lookups for "Student's history" and "Test Leaderboards"
-resultSchema.index({ userId: 1, createdAt: -1 }); 
-resultSchema.index({ testId: 1, score: -1 });
+const Result = mongoose.models.Result || mongoose.model('Result', resultSchema);
 
-const Result = mongoose.model('Result', resultSchema);
+// --- 2. ROUTES ---
 
-// --- ROUTES ---
-
-// 1. SAVE RESULT (Called when quiz ends)
+// SAVE RESULT (Student submits a test)
 router.post('/', async (req, res) => {
+  const { userId, testId, testTitle, category, score, totalQuestions, percentage, responses } = req.body;
   try {
-    const { userId, testId, testTitle, category, score, totalQuestions } = req.body;
-    
-    const percentage = Math.round((score / totalQuestions) * 100);
-
     const newResult = new Result({
       userId,
       testId,
@@ -42,41 +39,36 @@ router.post('/', async (req, res) => {
       category,
       score,
       totalQuestions,
-      percentage
+      percentage,
+      responses // <--- Saving the detailed array
     });
-
     await newResult.save();
     res.status(201).json(newResult);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    res.status(400).json({ message: err.message });
   }
 });
 
-// 2. GET STUDENT HISTORY (For Profile Page)
+// GET USER RESULTS (For Student Dashboard / Profile)
 router.get('/user/:userId', async (req, res) => {
   try {
-    const history = await Result.find({ userId: req.params.userId })
-                                .sort({ createdAt: -1 })
-                                .limit(50); // Optimization: Limit to last 50 attempts
-    res.json(history);
+    const results = await Result.find({ userId: req.params.userId }).sort({ createdAt: -1 });
+    res.json(results);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// 3. GET ADMIN ANALYTICS (All results)
-router.get('/admin/all', async (req, res) => {
-  try {
-    // Populate user name so Admin knows who took the test
-    // Note: You need a User model for this populate to work effectively
-    const allResults = await Result.find()
-                                   .sort({ createdAt: -1 })
-                                   .limit(100)
-                                   .populate('userId', 'name email'); // Assuming User model has these fields
-    res.json(allResults);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+// GET ALL RESULTS (For Admin Analytics)
+router.get('/', async (req, res) => {
+    try {
+        const results = await Result.find()
+            .populate('userId', 'name email') // Get Student Name
+            .sort({ createdAt: -1 });
+        res.json(results);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
 });
 
 module.exports = router;

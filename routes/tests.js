@@ -8,11 +8,11 @@ const questionSchema = new mongoose.Schema({
   questionText: { type: String, required: true },
   options: [{ type: String, required: true }],
   
-  // NEW: Support for Question Types
   type: { type: String, enum: ['single', 'multiple'], default: 'single' },
+  correctOptionIndices: [{ type: Number, required: true }],
   
-  // NEW: Array of correct indices (Replaces old correctOptionIndex)
-  correctOptionIndices: [{ type: Number, required: true }] 
+  // NEW: Flag to require student reasoning
+  requiresReasoning: { type: Boolean, default: false }
 });
 
 const testSchema = new mongoose.Schema({
@@ -24,7 +24,7 @@ const testSchema = new mongoose.Schema({
   questions: [questionSchema],
 }, { timestamps: true });
 
-const Test = mongoose.model('Test', testSchema);
+const Test = mongoose.models.Test || mongoose.model('Test', testSchema);
 
 // --- 2. API ROUTES ---
 

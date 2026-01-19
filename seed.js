@@ -1,32 +1,57 @@
-// backend/clear_enrollments.js
-require('dotenv').config();
+require('dotenv').config(); // Load environment variables
 const mongoose = require('mongoose');
 
-// --- 1. DEFINE SCHEMA (Must match courses.js) ---
+// --- 1. DEFINE SCHEMAS (Matches your courses.js) ---
+// We redefine them here because courses.js exports a router, not the models.
+
+const courseSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  enrolledCount: { type: Number, default: 0 },
+  // ... other fields are not strictly necessary for this operation
+});
+
 const enrollmentSchema = new mongoose.Schema({
-  student: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  course: { type: mongoose.Schema.Types.ObjectId, ref: 'Course', required: true },
-  status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
-  progress: [{ type: mongoose.Schema.Types.ObjectId }]
-}, { timestamps: true });
+  // ... fields are not strictly necessary for deleteMany
+});
 
-const Enrollment = mongoose.model('Enrollment', enrollmentSchema);
+// Create Models (Using the same names as courses.js to target the correct collections)
+const Course = mongoose.models.Course || mongoose.model('Course', courseSchema);
+const Enrollment = mongoose.models.Enrollment || mongoose.model('Enrollment', enrollmentSchema);
 
-// --- 2. CLEAR DATA ---
-const seed = async () => {
-    try {
-        await mongoose.connect(process.env.MONGO_URI);
-        console.log("🔌 Connected to MongoDB...");
+// --- 2. EXECUTION FUNCTION ---
 
-        const result = await Enrollment.deleteMany({});
-        console.log(`✅ Successfully deleted ${result.deletedCount} enrollment records.`);
-        console.log("   You can now re-enroll in courses.");
-        
-        mongoose.connection.close();
-    } catch (err) {
-        console.error("❌ Error:", err);
-        mongoose.connection.close();
-    }
+const resetEnrollments = async () => {
+  try {
+    // A. Connect to Database
+    // Ensure you have your MONGO_URI in a .env file or replace process.env.MONGO_URI below
+    const dbUri = process.env.MONGO_URI || 'mongodb://localhost:27017/your_database_name';
+    
+    console.log('⏳ Connecting to MongoDB...');
+    await mongoose.connect(dbUri);
+    console.log('✅ Connected.');
+
+    // B. Delete All Enrollments
+    console.log('⏳ Deleting all enrollments...');
+    const deleteResult = await Enrollment.deleteMany({});
+    console.log(`✅ Deleted ${deleteResult.deletedCount} enrollments.`);
+
+    // C. Reset Course Enrollment Counts
+    // Since we deleted enrollments, we must reset the counters on the courses
+    console.log('⏳ Resetting course enrollment counts to 0...');
+    const updateResult = await Course.updateMany({}, { $set: { enrolledCount: 0 } });
+    console.log(`✅ Reset counts for ${updateResult.modifiedCount} courses.`);
+
+    console.log('🎉 Cleanup complete!');
+
+  } catch (err) {
+    console.error('❌ Error:', err);
+  } finally {
+    // D. Close Connection
+    await mongoose.disconnect();
+    console.log('👋 Disconnected.');
+    process.exit();
+  }
 };
 
-seed();
+// --- 3. RUN ---
+resetEnrollments();
