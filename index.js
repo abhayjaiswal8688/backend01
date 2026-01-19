@@ -72,7 +72,7 @@ const Thread = mongoose.model('Thread', threadSchema);
 // --- IMPORT ROUTERS ---
 const testRoutes = require('./routes/tests'); 
 const communityRoutes = require('./routes/community');
-const resourceRoutes = require('./routes/resources'); // <--- NEW IMPORT
+const resourceRoutes = require('./routes/resources'); 
 const resultRoutes = require('./routes/results');
 const courseRoutes = require('./routes/courses');
 
@@ -95,11 +95,11 @@ const authMiddleware = (req, res, next) => {
 // --- USE ROUTERS ---
 app.use('/api/tests', testRoutes);
 app.use('/api/community', authMiddleware, communityRoutes);
-app.use('/api/resources', resourceRoutes); // <--- NEW ROUTE USE
+app.use('/api/resources', resourceRoutes); 
 app.use('/api/results', resultRoutes);
 app.use('/api/courses', courseRoutes);
 
-// --- AUTH & OTHER ROUTES (unchanged) ---
+// --- AUTH & OTHER ROUTES ---
 app.post('/api/auth/register', async (req, res) => {
     try {
         const { name, email, password } = req.body;
@@ -161,14 +161,80 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
+// NEW: Forgot Password (Send Reset Link)
+app.post('/api/auth/forgot-password', async (req, res) => {
+    const { email } = req.body;
+    try {
+        const user = await User.findOne({ email });
+        if (!user) return res.status(404).json({ message: "If this email is registered, you will receive a reset link." }); // Secure response
+
+        const resetToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '15m' });
+        // Pointing to the frontend login page with a query param
+        const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login?resetToken=${resetToken}`;
+
+        await transporter.sendMail({
+            from: `"Brain Help" <${process.env.EMAIL_USER}>`,
+            to: email,
+            subject: "Reset Your Password",
+            html: `
+                <h3>Password Reset Request</h3>
+                <p>Click the link below to reset your password. This link expires in 15 minutes.</p>
+                <a href="${resetUrl}" style="padding: 10px 20px; background-color: #6d28d9; color: white; text-decoration: none; border-radius: 5px;">Reset Password</a>
+            `
+        });
+        res.json({ message: "Reset link sent to your email." });
+    } catch (error) {
+        res.status(500).json({ message: "Error sending email." });
+    }
+});
+
+// NEW: Reset Password (Verify Token & Update)
+app.post('/api/auth/reset-password', async (req, res) => {
+    const { token, newPassword } = req.body;
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const user = await User.findById(decoded.id);
+        if (!user) return res.status(400).json({ message: "Invalid token." });
+
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(newPassword, salt);
+        await user.save();
+
+        res.json({ message: "Password reset successfully. You can now login." });
+    } catch (error) {
+        res.status(400).json({ message: "Invalid or expired token." });
+    }
+});
+
+// Change Password (Authenticated)
+app.put('/api/auth/change-password', authMiddleware, async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+        const user = await User.findById(req.userId);
+
+        if (!user) return res.status(404).json({ message: "User not found." });
+
+        // Verify current password
+        const isMatch = await bcrypt.compare(currentPassword, user.password);
+        if (!isMatch) return res.status(400).json({ message: "Incorrect current password." });
+
+        // Hash new password
+        const salt = await bcrypt.genSalt(10);
+        user.password = await bcrypt.hash(newPassword, salt);
+        await user.save();
+
+        res.json({ message: "Password updated successfully." });
+    } catch (error) {
+        res.status(500).json({ message: "Server error." });
+    }
+});
+
 app.get('/api/users/me', authMiddleware, async (req, res) => {
     const user = await User.findById(req.userId).select('-password');
     res.json(user || {});
 });
 
 // Startup
-
-// Connect to DB once, then start the server
 connectToDB().then(() => {
     app.listen(PORT, () => {
         console.log(`Server running on http://localhost:${PORT}`);
